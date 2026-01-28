@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/arch-err/dri/internal/client"
 	"github.com/arch-err/dri/internal/tui/builds"
@@ -235,13 +236,17 @@ func (m Model) renderStatusBar() string {
 		return ""
 	}
 
-	// Join all parts and apply consistent background
+	// Join all parts - they already have their own backgrounds
 	joined := lipgloss.JoinHorizontal(lipgloss.Top, parts...)
+
+	// Fill remaining width with background color
 	if m.width > 0 {
-		return lipgloss.NewStyle().
-			Background(lipgloss.Color("235")).
-			Width(m.width).
-			Render(joined)
+		contentWidth := lipgloss.Width(joined)
+		fillWidth := m.width - contentWidth
+		if fillWidth > 0 {
+			fillStyle := lipgloss.NewStyle().Background(lipgloss.Color("235"))
+			return joined + fillStyle.Render(strings.Repeat(" ", fillWidth))
+		}
 	}
 	return joined
 }

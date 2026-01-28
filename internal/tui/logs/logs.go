@@ -180,8 +180,8 @@ func (m Model) RenderStatusBar() string {
 			// Active tab: bright background
 			style = style.Background(lipgloss.Color("63")).Foreground(lipgloss.Color("231")).Bold(true)
 		} else {
-			// Inactive tab: no background, just dim foreground
-			style = style.Foreground(lipgloss.Color("244"))
+			// Inactive tab: same background as statusbar, dim foreground
+			style = style.Background(lipgloss.Color("235")).Foreground(lipgloss.Color("244"))
 		}
 
 		parts = append(parts, style.Render(label))
