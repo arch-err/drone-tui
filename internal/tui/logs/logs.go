@@ -48,7 +48,7 @@ func New(build *drone.Build, width, height int) Model {
 	s.Spinner = spinner.Dot
 	s.Style = styles.SpinnerStyle
 
-	vp := viewport.New(width, height-3) // Account for statusbar + help line
+	vp := viewport.New(width, height-2) // Account for separator + help line
 
 	m := Model{
 		tabs:     tabs,
@@ -159,7 +159,7 @@ func (m Model) View() string {
 	}
 
 	help := styles.HelpStyle.Render("tab/shift+tab: switch · ↑/↓: scroll · gg/G: top/bottom · esc: back")
-	return lipgloss.JoinVertical(lipgloss.Left, m.viewport.View(), help)
+	return lipgloss.JoinVertical(lipgloss.Left, m.viewport.View(), "", help)
 }
 
 // RenderStatusBar renders the tab bar as a single line statusbar
@@ -177,8 +177,10 @@ func (m Model) RenderStatusBar() string {
 
 		style := lipgloss.NewStyle().Padding(0, 1)
 		if i == m.activeTab {
+			// Active tab: bright background
 			style = style.Background(lipgloss.Color("63")).Foreground(lipgloss.Color("231")).Bold(true)
 		} else {
+			// Inactive tab: no background, just dim foreground
 			style = style.Foreground(lipgloss.Color("244"))
 		}
 
@@ -192,5 +194,5 @@ func (m *Model) SetSize(w, h int) {
 	m.width = w
 	m.height = h
 	m.viewport.Width = w
-	m.viewport.Height = h - 3 // Account for statusbar + help line
+	m.viewport.Height = h - 2 // Account for separator + help line
 }

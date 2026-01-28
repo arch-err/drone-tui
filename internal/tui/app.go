@@ -235,7 +235,12 @@ func (m Model) renderStatusBar() string {
 		return ""
 	}
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
+	// Join all parts and apply consistent background
+	joined := lipgloss.JoinHorizontal(lipgloss.Top, parts...)
+	return lipgloss.NewStyle().
+		Background(lipgloss.Color("235")).
+		Width(m.width).
+		Render(joined)
 }
 
 func (m *Model) propagateSize() Model {

@@ -167,7 +167,7 @@ func (m Model) View() string {
 		}
 	}
 	if help != "" {
-		return m.list.View() + "\n" + help
+		return m.list.View() + "\n\n" + help
 	}
 	return m.list.View()
 }

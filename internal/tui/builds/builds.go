@@ -77,12 +77,16 @@ func (d compactDelegate) Render(w io.Writer, m list.Model, index int, item list.
 	title := titleStyle.Render(i.Title())
 	desc := descStyle.Render(i.Description())
 
-	// Render with cursor indicator
-	fmt.Fprintf(w, "%s%s\n%s%s", cursor, title, cursor, desc)
+	// Render with cursor indicator and blank line separator
+	fmt.Fprintf(w, "%s%s\n%s%s\n", cursor, title, cursor, desc)
 }
 
 func (d compactDelegate) Height() int {
-	return 2 // Title line + description line
+	return 3 // Title line + description line + blank separator
+}
+
+func (d compactDelegate) Spacing() int {
+	return 0 // No additional spacing needed, we handle it in Render
 }
 
 type Model struct {
@@ -98,7 +102,7 @@ func New(buildList []*drone.Build, repoSlug string, width, height int) Model {
 
 	delegate := compactDelegate{}
 	l := list.New(items, delegate, width, height)
-	l.Title = fmt.Sprintf("Builds — %s", repoSlug)
+	l.Title = "" // Title shown in statusbar instead
 	l.DisableQuitKeybindings()
 	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
