@@ -102,7 +102,7 @@ func New(buildList []*drone.Build, repoSlug string, width, height int) Model {
 
 	delegate := compactDelegate{}
 	l := list.New(items, delegate, width, height)
-	l.Title = "" // Title shown in statusbar instead
+	l.SetShowTitle(false) // Title shown in external statusbar instead
 	l.DisableQuitKeybindings()
 	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
