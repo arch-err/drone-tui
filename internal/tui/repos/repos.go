@@ -2,6 +2,7 @@ package repos
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -61,12 +62,40 @@ func New(repos []*drone.Repo, width, height int) Model {
 }
 
 func (m *Model) rebuildList() {
-	var items []list.Item
+	var filtered []*drone.Repo
 	for _, r := range m.allRepos {
-		if !m.showInactive && !r.Active {
-			continue
+		if !m.showInactive {
+			// Hide inactive repos and repos with no builds
+			if !r.Active || r.Build.Number == 0 {
+				continue
+			}
 		}
-		items = append(items, repoItem{repo: r})
+		filtered = append(filtered, r)
+	}
+
+	// Sort by build recency (most recent first, no builds at end)
+	sort.Slice(filtered, func(i, j int) bool {
+		iTime := filtered[i].Build.Finished
+		if iTime == 0 {
+			iTime = filtered[i].Build.Started
+		}
+		jTime := filtered[j].Build.Finished
+		if jTime == 0 {
+			jTime = filtered[j].Build.Started
+		}
+		// Repos with no builds go to the end
+		if iTime == 0 && jTime != 0 {
+			return false
+		}
+		if iTime != 0 && jTime == 0 {
+			return true
+		}
+		return iTime > jTime
+	})
+
+	items := make([]list.Item, len(filtered))
+	for i, r := range filtered {
+		items[i] = repoItem{repo: r}
 	}
 
 	m.list = list.New(items, list.NewDefaultDelegate(), m.width, m.height)
@@ -161,13 +190,13 @@ func (m Model) View() string {
 			// Show escape hint when user pressed escape once
 			help = styles.HelpStyle.Render("Press escape again to exit")
 		} else if m.showInactive {
-			help = styles.HelpStyle.Render("a: hide inactive")
+			help = styles.HelpStyle.Render("a: hide inactive · r: refresh")
 		} else {
-			help = styles.HelpStyle.Render("a: show all · esc esc: quit")
+			help = styles.HelpStyle.Render("a: show all · r: refresh · esc esc: quit")
 		}
 	}
 	if help != "" {
-		return m.list.View() + "\n\n" + help
+		return m.list.View() + "\n" + help
 	}
 	return m.list.View()
 }

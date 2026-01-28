@@ -19,7 +19,9 @@ type buildItem struct {
 }
 
 func (i buildItem) Title() string {
-	return fmt.Sprintf("%s #%d %s", styles.StatusIcon(i.build.Status), i.build.Number, i.build.Message)
+	msg := strings.ReplaceAll(i.build.Message, "\n", " ")
+	msg = strings.ReplaceAll(msg, "\r", " ")
+	return fmt.Sprintf("%s #%d %s", styles.StatusIcon(i.build.Status), i.build.Number, msg)
 }
 
 func (i buildItem) FilterValue() string {
@@ -67,7 +69,7 @@ func (d compactDelegate) Render(w io.Writer, m list.Model, index int, item list.
 		cursor = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("63")).
 			Bold(true).
-			Render("> ")
+			Render("│ ")
 		titleStyle = titleStyle.Foreground(lipgloss.Color("63")).Bold(true)
 		descStyle = descStyle.Foreground(lipgloss.Color("63"))
 	} else {

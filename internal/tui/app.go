@@ -2,8 +2,8 @@ package tui
 
 import (
 	"fmt"
-	"os"
 	"strings"
+	"time"
 
 	"github.com/arch-err/dri/internal/client"
 	"github.com/arch-err/dri/internal/tui/builds"
@@ -30,12 +30,14 @@ const (
 )
 
 type Model struct {
-	state   state
-	client  client.Client
-	spinner spinner.Model
-	width   int
-	height  int
-	err     error
+	state            state
+	client           client.Client
+	spinner          spinner.Model
+	width            int
+	height           int
+	err              error
+	isRefreshing     bool
+	loadingStartTime time.Time
 
 	repoList  repos.Model
 	buildList builds.Model
@@ -43,7 +45,16 @@ type Model struct {
 
 	selectedRepo  *drone.Repo
 	selectedBuild *drone.Build
+
+	// Pending data waiting for minimum loading time
+	pendingRepos  []*drone.Repo
+	pendingBuilds []*drone.Build
+	pendingBuild  *drone.Build
 }
+
+const minLoadingDuration = 500 * time.Millisecond
+
+type loadingCompleteMsg struct{}
 
 func New(c client.Client) Model {
 	s := spinner.New()
@@ -51,9 +62,10 @@ func New(c client.Client) Model {
 	s.Style = styles.SpinnerStyle
 
 	return Model{
-		state:   stateLoadingRepos,
-		client:  c,
-		spinner: s,
+		state:            stateLoadingRepos,
+		client:           c,
+		spinner:          s,
+		loadingStartTime: time.Now(),
 	}
 }
 
@@ -79,47 +91,126 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+		// Refresh keybind
+		if teaMsg.String() == "r" {
+			switch m.state {
+			case stateRepoList:
+				if !m.repoList.IsFiltering() {
+					m.state = stateLoadingRepos
+					m.isRefreshing = true
+					m.loadingStartTime = time.Now()
+					return m, tea.Batch(m.spinner.Tick, m.loadReposCmd())
+				}
+			case stateBuildList:
+				if !m.buildList.IsFiltering() {
+					m.state = stateLoadingBuilds
+					m.isRefreshing = true
+					m.loadingStartTime = time.Now()
+					return m, tea.Batch(m.spinner.Tick, m.loadBuildsCmd(m.selectedRepo.Namespace, m.selectedRepo.Name))
+				}
+			case stateLogViewer:
+				m.state = stateLoadingBuild
+				m.isRefreshing = true
+				m.loadingStartTime = time.Now()
+				return m, tea.Batch(m.spinner.Tick, m.loadBuildCmd(m.selectedRepo.Namespace, m.selectedRepo.Name, int(m.selectedBuild.Number)))
+			}
+		}
+
 	case msg.ReposLoadedMsg:
 		if teaMsg.Err != nil {
 			m.err = teaMsg.Err
 			return m, tea.Quit
 		}
+		elapsed := time.Since(m.loadingStartTime)
+		if elapsed < minLoadingDuration {
+			m.pendingRepos = teaMsg.Repos
+			return m, tea.Tick(minLoadingDuration-elapsed, func(t time.Time) tea.Msg {
+				return loadingCompleteMsg{}
+			})
+		}
 		m.repoList = repos.New(teaMsg.Repos, m.width, m.height)
 		m.state = stateRepoList
+		m.isRefreshing = false
 		return m, nil
 
 	case msg.RepoSelectedMsg:
 		m.selectedRepo = teaMsg.Repo
 		m.state = stateLoadingBuilds
+		m.loadingStartTime = time.Now()
 		return m, tea.Batch(m.spinner.Tick, m.loadBuildsCmd(teaMsg.Repo.Namespace, teaMsg.Repo.Name))
 
 	case msg.BuildsLoadedMsg:
 		if teaMsg.Err != nil {
 			m.err = teaMsg.Err
 			m.state = stateRepoList
+			m.isRefreshing = false
 			return m, nil
+		}
+		elapsed := time.Since(m.loadingStartTime)
+		if elapsed < minLoadingDuration {
+			m.pendingBuilds = teaMsg.Builds
+			return m, tea.Tick(minLoadingDuration-elapsed, func(t time.Time) tea.Msg {
+				return loadingCompleteMsg{}
+			})
 		}
 		// Account for statusbar height
 		m.buildList = builds.New(teaMsg.Builds, m.selectedRepo.Slug, m.width, m.height-1)
 		m.state = stateBuildList
+		m.isRefreshing = false
 		return m, nil
 
 	case msg.BuildSelectedMsg:
 		m.selectedBuild = teaMsg.Build
 		m.state = stateLoadingBuild
+		m.loadingStartTime = time.Now()
 		return m, tea.Batch(m.spinner.Tick, m.loadBuildCmd(m.selectedRepo.Namespace, m.selectedRepo.Name, int(teaMsg.Build.Number)))
 
 	case msg.BuildLoadedMsg:
 		if teaMsg.Err != nil {
 			m.err = teaMsg.Err
 			m.state = stateBuildList
+			m.isRefreshing = false
 			return m, nil
+		}
+		elapsed := time.Since(m.loadingStartTime)
+		if elapsed < minLoadingDuration {
+			m.pendingBuild = teaMsg.Build
+			return m, tea.Tick(minLoadingDuration-elapsed, func(t time.Time) tea.Msg {
+				return loadingCompleteMsg{}
+			})
 		}
 		m.selectedBuild = teaMsg.Build
 		// Account for statusbar height
 		m.logViewer = logs.New(teaMsg.Build, m.width, m.height-1)
 		m.state = stateLogViewer
+		m.isRefreshing = false
 		return m, m.loadAllLogsCmd(teaMsg.Build)
+
+	case loadingCompleteMsg:
+		m.isRefreshing = false
+		switch m.state {
+		case stateLoadingRepos:
+			if m.pendingRepos != nil {
+				m.repoList = repos.New(m.pendingRepos, m.width, m.height)
+				m.pendingRepos = nil
+				m.state = stateRepoList
+			}
+		case stateLoadingBuilds:
+			if m.pendingBuilds != nil {
+				m.buildList = builds.New(m.pendingBuilds, m.selectedRepo.Slug, m.width, m.height-1)
+				m.pendingBuilds = nil
+				m.state = stateBuildList
+			}
+		case stateLoadingBuild:
+			if m.pendingBuild != nil {
+				m.selectedBuild = m.pendingBuild
+				m.logViewer = logs.New(m.pendingBuild, m.width, m.height-1)
+				m.pendingBuild = nil
+				m.state = stateLogViewer
+				return m, m.loadAllLogsCmd(m.selectedBuild)
+			}
+		}
+		return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -167,24 +258,50 @@ func (m Model) View() string {
 
 	switch m.state {
 	case stateLoadingRepos:
+		// Show repo list while refreshing, or just statusbar on initial load
+		if m.isRefreshing {
+			return m.repoList.View()
+		}
+		if statusBar != "" {
+			return statusBar
+		}
 		return styles.AppStyle.Render(m.spinner.View() + " Loading repositories...")
+
 	case stateRepoList:
 		return m.repoList.View()
+
 	case stateLoadingBuilds:
-		if statusBar != "" {
-			return lipgloss.JoinVertical(lipgloss.Left, statusBar, styles.AppStyle.Render(m.spinner.View()+" Loading builds..."))
+		// Show build list while refreshing, or repo list on initial navigation
+		if m.isRefreshing {
+			if statusBar != "" {
+				return lipgloss.JoinVertical(lipgloss.Left, statusBar, m.buildList.View())
+			}
+			return m.buildList.View()
 		}
-		return styles.AppStyle.Render(m.spinner.View() + " Loading builds...")
+		if statusBar != "" {
+			return lipgloss.JoinVertical(lipgloss.Left, statusBar, m.repoList.View())
+		}
+		return m.repoList.View()
+
 	case stateBuildList:
 		if statusBar != "" {
 			return lipgloss.JoinVertical(lipgloss.Left, statusBar, m.buildList.View())
 		}
 		return m.buildList.View()
+
 	case stateLoadingBuild:
-		if statusBar != "" {
-			return lipgloss.JoinVertical(lipgloss.Left, statusBar, styles.AppStyle.Render(m.spinner.View()+" Loading build details..."))
+		// Show log viewer while refreshing, or build list on initial navigation
+		if m.isRefreshing {
+			if statusBar != "" {
+				return lipgloss.JoinVertical(lipgloss.Left, statusBar, m.logViewer.View())
+			}
+			return m.logViewer.View()
 		}
-		return styles.AppStyle.Render(m.spinner.View() + " Loading build details...")
+		if statusBar != "" {
+			return lipgloss.JoinVertical(lipgloss.Left, statusBar, m.buildList.View())
+		}
+		return m.buildList.View()
+
 	case stateLogViewer:
 		if statusBar != "" {
 			return lipgloss.JoinVertical(lipgloss.Left, statusBar, m.logViewer.View())
@@ -196,14 +313,8 @@ func (m Model) View() string {
 }
 
 func (m Model) renderStatusBar() string {
-	// DEBUG: Log every call
-	if f, err := os.OpenFile("/tmp/dri-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
-		fmt.Fprintf(f, "=== renderStatusBar called: state=%d, width=%d, selectedRepo=%v, selectedBuild=%v ===\n",
-			m.state, m.width, m.selectedRepo != nil, m.selectedBuild != nil)
-		f.Close()
-	}
-
 	var parts []string
+	var loadingText string
 
 	statusBarStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color("235")).
@@ -216,21 +327,45 @@ func (m Model) renderStatusBar() string {
 		Bold(true).
 		Padding(0, 1)
 
+	loadingStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color("235")).
+		Foreground(lipgloss.Color("244")).
+		Padding(0, 1)
+
 	switch m.state {
-	case stateBuildList, stateLoadingBuild, stateLogViewer:
+	case stateLoadingRepos:
+		loadingText = "● Refreshing..."
+		parts = append(parts, loadingStyle.Render(loadingText))
+
+	case stateRepoList:
+		// No statusbar for repo list
+		return ""
+
+	case stateLoadingBuilds:
+		if m.selectedRepo != nil {
+			parts = append(parts, highlightStyle.Render(m.selectedRepo.Slug))
+		}
+		loadingText = "● Refreshing..."
+
+	case stateBuildList:
 		if m.selectedRepo != nil {
 			parts = append(parts, highlightStyle.Render(m.selectedRepo.Slug))
 		}
 
-	case stateLoadingRepos, stateRepoList:
-		// No statusbar for repo list
-		return ""
-	}
+	case stateLoadingBuild:
+		if m.selectedRepo != nil {
+			parts = append(parts, highlightStyle.Render(m.selectedRepo.Slug))
+		}
+		loadingText = "● Refreshing..."
 
-	if m.state == stateLogViewer {
+	case stateLogViewer:
+		if m.selectedRepo != nil {
+			parts = append(parts, highlightStyle.Render(m.selectedRepo.Slug))
+		}
 		if m.selectedBuild != nil {
-			// Truncate commit message to 12 chars
-			msg := m.selectedBuild.Message
+			// Truncate commit message to 12 chars and strip newlines
+			msg := strings.ReplaceAll(m.selectedBuild.Message, "\n", " ")
+			msg = strings.ReplaceAll(msg, "\r", " ")
 			if len(msg) > 12 {
 				msg = msg[:12] + "..."
 			}
@@ -240,55 +375,28 @@ func (m Model) renderStatusBar() string {
 		parts = append(parts, m.logViewer.RenderStatusBar())
 	}
 
-	// DEBUG: Log parts array
-	if f, err := os.OpenFile("/tmp/dri-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
-		fmt.Fprintf(f, "  parts.len=%d\n", len(parts))
-		for i, p := range parts {
-			preview := p
-			if len(p) > 100 {
-				preview = p[:100] + "..."
-			}
-			fmt.Fprintf(f, "  parts[%d]: len=%d, %q\n", i, len(p), preview)
-		}
-		f.Close()
-	}
-
-	if len(parts) == 0 {
-		if f, err := os.OpenFile("/tmp/dri-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
-			fmt.Fprintf(f, "  RETURNING EMPTY (len(parts)==0)\n")
-			f.Close()
-		}
+	if len(parts) == 0 && loadingText == "" {
 		return ""
 	}
 
 	// Join all parts - they already have their own backgrounds
 	joined := lipgloss.JoinHorizontal(lipgloss.Top, parts...)
 
-	// DEBUG: Log joined result
-	if f, err := os.OpenFile("/tmp/dri-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
-		fmt.Fprintf(f, "  joined.len=%d, width=%d\n", len(joined), lipgloss.Width(joined))
-		f.Close()
-	}
-
-	// Fill remaining width with background color
+	// Fill remaining width with background color, add loading on the right
 	if m.width > 0 {
 		contentWidth := lipgloss.Width(joined)
-		fillWidth := m.width - contentWidth
-		if fillWidth > 0 {
-			fillStyle := lipgloss.NewStyle().Background(lipgloss.Color("235"))
-			result := joined + fillStyle.Render(strings.Repeat(" ", fillWidth))
-			// DEBUG: Log final result
-			if f, err := os.OpenFile("/tmp/dri-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
-				fmt.Fprintf(f, "  RETURNING: len=%d, fillWidth=%d\n", len(result), fillWidth)
-				f.Close()
-			}
-			return result
+		loadingWidth := 0
+		if loadingText != "" {
+			loadingWidth = lipgloss.Width(loadingStyle.Render(loadingText))
 		}
-	}
-	// DEBUG: Log fallback return
-	if f, err := os.OpenFile("/tmp/dri-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
-		fmt.Fprintf(f, "  RETURNING joined (no fill): len=%d\n", len(joined))
-		f.Close()
+		fillWidth := m.width - contentWidth - loadingWidth
+		fillStyle := lipgloss.NewStyle().Background(lipgloss.Color("235"))
+		if fillWidth > 0 {
+			joined = joined + fillStyle.Render(strings.Repeat(" ", fillWidth))
+		}
+		if loadingText != "" {
+			joined = joined + loadingStyle.Render(loadingText)
+		}
 	}
 	return joined
 }

@@ -17,6 +17,7 @@ type stepTab struct {
 	name     string
 	stageNum int
 	stepNum  int
+	status   string
 	content  string
 	loaded   bool
 }
@@ -40,6 +41,7 @@ func New(build *drone.Build, width, height int) Model {
 				name:     step.Name,
 				stageNum: int(stage.Number),
 				stepNum:  int(step.Number),
+				status:   step.Status,
 			})
 		}
 	}
@@ -158,7 +160,7 @@ func (m Model) View() string {
 		return styles.AppStyle.Render("No steps found in this build.")
 	}
 
-	help := styles.HelpStyle.Render("tab/shift+tab: switch · ↑/↓: scroll · gg/G: top/bottom · esc: back")
+	help := styles.HelpStyle.Render("tab/shift+tab: switch · ↑/↓: scroll · gg/G: top/bottom · r: refresh · esc: back")
 	return lipgloss.JoinVertical(lipgloss.Left, m.viewport.View(), "", help)
 }
 
@@ -170,9 +172,13 @@ func (m Model) RenderStatusBar() string {
 
 	var parts []string
 	for i, tab := range m.tabs {
-		label := tab.name
+		icon := statusIconChar(tab.status)
+
+		var label string
 		if !tab.loaded {
-			label += " " + m.spinner.View()
+			label = icon + " " + tab.name + " " + m.spinner.View()
+		} else {
+			label = icon + " " + tab.name
 		}
 
 		style := lipgloss.NewStyle().Padding(0, 1)
@@ -188,6 +194,24 @@ func (m Model) RenderStatusBar() string {
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
+}
+
+// statusIconChar returns just the icon character without styling
+func statusIconChar(status string) string {
+	switch status {
+	case "success":
+		return "✓"
+	case "failure", "error":
+		return "✗"
+	case "running":
+		return "●"
+	case "pending":
+		return "○"
+	case "killed":
+		return "✗"
+	default:
+		return "○"
+	}
 }
 
 func (m *Model) SetSize(w, h int) {

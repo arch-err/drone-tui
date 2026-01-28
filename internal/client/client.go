@@ -2,6 +2,9 @@ package client
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 
 	"github.com/drone/drone-go/drone"
 	"golang.org/x/oauth2"
@@ -15,17 +18,38 @@ type Client interface {
 }
 
 type droneClient struct {
-	inner drone.Client
+	inner      drone.Client
+	httpClient *http.Client
+	server     string
 }
 
 func New(server, token string) Client {
 	conf := new(oauth2.Config)
 	auth := conf.Client(context.Background(), &oauth2.Token{AccessToken: token})
-	return &droneClient{inner: drone.NewClient(server, auth)}
+	return &droneClient{
+		inner:      drone.NewClient(server, auth),
+		httpClient: auth,
+		server:     server,
+	}
 }
 
 func (c *droneClient) ListRepos() ([]*drone.Repo, error) {
-	return c.inner.RepoList()
+	uri := fmt.Sprintf("%s/api/user/repos?latest=true", c.server)
+	resp, err := c.httpClient.Get(uri)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return c.inner.RepoList()
+	}
+
+	var repos []*drone.Repo
+	if err := json.NewDecoder(resp.Body).Decode(&repos); err != nil {
+		return nil, err
+	}
+	return repos, nil
 }
 
 func (c *droneClient) ListBuilds(namespace, name string, page int) ([]*drone.Build, error) {
