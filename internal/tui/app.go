@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/drone/drone-go/drone"
 )
 
@@ -38,7 +39,8 @@ type Model struct {
 	buildList builds.Model
 	logViewer logs.Model
 
-	selectedRepo *drone.Repo
+	selectedRepo  *drone.Repo
+	selectedBuild *drone.Build
 }
 
 func New(c client.Client) Model {
@@ -95,11 +97,13 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state = stateRepoList
 			return m, nil
 		}
-		m.buildList = builds.New(teaMsg.Builds, m.selectedRepo.Slug, m.width, m.height)
+		// Account for statusbar height
+		m.buildList = builds.New(teaMsg.Builds, m.selectedRepo.Slug, m.width, m.height-1)
 		m.state = stateBuildList
 		return m, nil
 
 	case msg.BuildSelectedMsg:
+		m.selectedBuild = teaMsg.Build
 		m.state = stateLoadingBuild
 		return m, tea.Batch(m.spinner.Tick, m.loadBuildCmd(m.selectedRepo.Namespace, m.selectedRepo.Name, int(teaMsg.Build.Number)))
 
@@ -109,7 +113,9 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state = stateBuildList
 			return m, nil
 		}
-		m.logViewer = logs.New(teaMsg.Build, m.width, m.height)
+		m.selectedBuild = teaMsg.Build
+		// Account for statusbar height
+		m.logViewer = logs.New(teaMsg.Build, m.width, m.height-1)
 		m.state = stateLogViewer
 		return m, m.loadAllLogsCmd(teaMsg.Build)
 	}
@@ -155,22 +161,76 @@ func (m Model) View() string {
 		return styles.AppStyle.Render(fmt.Sprintf("Error: %v\n\nPress q to quit.", m.err))
 	}
 
+	statusBar := m.renderStatusBar()
+
 	switch m.state {
 	case stateLoadingRepos:
 		return styles.AppStyle.Render(m.spinner.View() + " Loading repositories...")
 	case stateRepoList:
 		return m.repoList.View()
 	case stateLoadingBuilds:
+		if statusBar != "" {
+			return lipgloss.JoinVertical(lipgloss.Left, statusBar, styles.AppStyle.Render(m.spinner.View()+" Loading builds..."))
+		}
 		return styles.AppStyle.Render(m.spinner.View() + " Loading builds...")
 	case stateBuildList:
+		if statusBar != "" {
+			return lipgloss.JoinVertical(lipgloss.Left, statusBar, m.buildList.View())
+		}
 		return m.buildList.View()
 	case stateLoadingBuild:
+		if statusBar != "" {
+			return lipgloss.JoinVertical(lipgloss.Left, statusBar, styles.AppStyle.Render(m.spinner.View()+" Loading build details..."))
+		}
 		return styles.AppStyle.Render(m.spinner.View() + " Loading build details...")
 	case stateLogViewer:
+		if statusBar != "" {
+			return lipgloss.JoinVertical(lipgloss.Left, statusBar, m.logViewer.View())
+		}
 		return m.logViewer.View()
 	}
 
 	return ""
+}
+
+func (m Model) renderStatusBar() string {
+	var parts []string
+
+	statusBarStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color("235")).
+		Foreground(lipgloss.Color("252")).
+		Padding(0, 1)
+
+	highlightStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color("235")).
+		Foreground(lipgloss.Color("63")).
+		Bold(true).
+		Padding(0, 1)
+
+	switch m.state {
+	case stateBuildList, stateLoadingBuild, stateLogViewer:
+		if m.selectedRepo != nil {
+			parts = append(parts, highlightStyle.Render(m.selectedRepo.Slug))
+		}
+
+	case stateLoadingRepos, stateRepoList:
+		// No statusbar for repo list
+		return ""
+	}
+
+	if m.state == stateLogViewer {
+		if m.selectedBuild != nil {
+			parts = append(parts, statusBarStyle.Render(fmt.Sprintf("#%d", m.selectedBuild.Number)))
+		}
+		// Add log tabs to statusbar
+		parts = append(parts, m.logViewer.RenderStatusBar())
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
 }
 
 func (m *Model) propagateSize() Model {
@@ -178,9 +238,9 @@ func (m *Model) propagateSize() Model {
 	case stateRepoList:
 		m.repoList.SetSize(m.width, m.height)
 	case stateBuildList:
-		m.buildList.SetSize(m.width, m.height)
+		m.buildList.SetSize(m.width, m.height-1) // Account for statusbar
 	case stateLogViewer:
-		m.logViewer.SetSize(m.width, m.height)
+		m.logViewer.SetSize(m.width, m.height-1) // Account for statusbar
 	}
 	return *m
 }

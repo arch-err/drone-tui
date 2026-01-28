@@ -2,6 +2,7 @@ package builds
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/arch-err/dri/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/drone/drone-go/drone"
 )
 
@@ -44,8 +46,41 @@ func (i buildItem) Description() string {
 	return strings.Join(parts, " | ")
 }
 
+// Custom delegate with compact rendering (no spacing between title and description)
+type compactDelegate struct {
+	list.DefaultDelegate
+}
+
+func (d compactDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	i, ok := item.(buildItem)
+	if !ok {
+		return
+	}
+
+	isSelected := index == m.Index()
+
+	titleStyle := lipgloss.NewStyle()
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+
+	if isSelected {
+		titleStyle = titleStyle.Foreground(lipgloss.Color("63")).Bold(true)
+		descStyle = descStyle.Foreground(lipgloss.Color("244"))
+	}
+
+	title := titleStyle.Render(i.Title())
+	desc := descStyle.Render(i.Description())
+
+	// Render title and description on consecutive lines without spacing
+	fmt.Fprintf(w, "%s\n%s", title, desc)
+}
+
+func (d compactDelegate) Height() int {
+	return 2 // Title line + description line
+}
+
 type Model struct {
-	list list.Model
+	list          list.Model
+	pendingGCount int
 }
 
 func New(buildList []*drone.Build, repoSlug string, width, height int) Model {
@@ -54,23 +89,55 @@ func New(buildList []*drone.Build, repoSlug string, width, height int) Model {
 		items[i] = buildItem{build: b}
 	}
 
-	l := list.New(items, list.NewDefaultDelegate(), width, height)
+	delegate := compactDelegate{}
+	l := list.New(items, delegate, width, height)
 	l.Title = fmt.Sprintf("Builds — %s", repoSlug)
 	l.DisableQuitKeybindings()
 	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
 
+	// Select the first item by default
+	if len(items) > 0 {
+		l.Select(0)
+	}
+
 	return Model{list: l}
 }
 
 func (m Model) Update(msgin tea.Msg) (Model, tea.Cmd) {
-	if kmsg, ok := msgin.(tea.KeyMsg); ok && kmsg.String() == "enter" {
-		if !m.IsFiltering() {
-			if item, ok := m.list.SelectedItem().(buildItem); ok {
-				return m, func() tea.Msg {
-					return msg.BuildSelectedMsg{Build: item.build}
+	if kmsg, ok := msgin.(tea.KeyMsg); ok {
+		switch kmsg.String() {
+		case "enter":
+			if !m.IsFiltering() {
+				if item, ok := m.list.SelectedItem().(buildItem); ok {
+					return m, func() tea.Msg {
+						return msg.BuildSelectedMsg{Build: item.build}
+					}
 				}
 			}
+
+		case "g":
+			// Vim binding: gg to go to top
+			if !m.IsFiltering() {
+				m.pendingGCount++
+				if m.pendingGCount == 2 {
+					m.list.Select(0)
+					m.pendingGCount = 0
+				}
+				return m, nil
+			}
+
+		case "G":
+			// Vim binding: G to go to bottom
+			if !m.IsFiltering() {
+				m.list.Select(len(m.list.Items()) - 1)
+				m.pendingGCount = 0
+			}
+			return m, nil
+
+		default:
+			// Reset pending g count on any other key
+			m.pendingGCount = 0
 		}
 	}
 
