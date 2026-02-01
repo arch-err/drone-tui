@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Vim-style `gx` keybinding to open current repo/build/step in browser
+
+### Fixed
+
+- Corrected curl flags in installation docs
+
+## [0.2.0] - 2026-01-28
+
+### Added
+
 - Start in filter mode by default on repo list screen
 - Vim navigation bindings (gg/G) for jumping to top/bottom in all views
 - Breadcrumb statusbar showing current repo and build context
@@ -26,10 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed spacing between build title and metadata for clearer grouping
 - Removed extra newlines between log lines for cleaner display
 - Hide inactive repos by default (toggle with 'a' to show all)
-
-### Fixed
-
-- Corrected curl flags in installation docs
 
 ## [0.1.0] - 2026-01-28
 
