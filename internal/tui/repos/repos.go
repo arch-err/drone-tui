@@ -190,9 +190,9 @@ func (m Model) View() string {
 			// Show escape hint when user pressed escape once
 			help = styles.HelpStyle.Render("Press escape again to exit")
 		} else if m.showInactive {
-			help = styles.HelpStyle.Render("a: hide inactive · r: refresh")
+			help = styles.HelpStyle.Render("a: hide inactive · r: refresh · gx: open in browser")
 		} else {
-			help = styles.HelpStyle.Render("a: show all · r: refresh · esc esc: quit")
+			help = styles.HelpStyle.Render("a: show all · r: refresh · gx: open in browser · esc esc: quit")
 		}
 	}
 	if help != "" {
@@ -209,6 +209,13 @@ func (m *Model) SetSize(w, h int) {
 	m.width = w
 	m.height = h
 	m.list.SetSize(w, h)
+}
+
+func (m Model) SelectedRepo() *drone.Repo {
+	if item, ok := m.list.SelectedItem().(repoItem); ok {
+		return item.repo
+	}
+	return nil
 }
 
 func timeAgo(unix int64) string {

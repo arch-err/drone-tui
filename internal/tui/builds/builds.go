@@ -171,6 +171,13 @@ func (m *Model) SetSize(w, h int) {
 	m.list.SetSize(w, h)
 }
 
+func (m Model) SelectedBuild() *drone.Build {
+	if item, ok := m.list.SelectedItem().(buildItem); ok {
+		return item.build
+	}
+	return nil
+}
+
 func timeAgo(unix int64) string {
 	t := time.Unix(unix, 0)
 	d := time.Since(t)

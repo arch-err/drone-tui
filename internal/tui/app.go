@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -50,6 +52,9 @@ type Model struct {
 	pendingRepos  []*drone.Repo
 	pendingBuilds []*drone.Build
 	pendingBuild  *drone.Build
+
+	// Track pending 'g' for vim-style gx binding
+	pendingG bool
 }
 
 const minLoadingDuration = 500 * time.Millisecond
@@ -93,6 +98,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Refresh keybind
 		if teaMsg.String() == "r" {
+			m.pendingG = false
 			switch m.state {
 			case stateRepoList:
 				if !m.repoList.IsFiltering() {
@@ -115,6 +121,34 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(m.spinner.Tick, m.loadBuildCmd(m.selectedRepo.Namespace, m.selectedRepo.Name, int(m.selectedBuild.Number)))
 			}
 		}
+
+		// Vim-style gx to open in browser
+		if teaMsg.String() == "g" {
+			// Don't interfere when filtering
+			if (m.state == stateRepoList && m.repoList.IsFiltering()) ||
+				(m.state == stateBuildList && m.buildList.IsFiltering()) {
+				m.pendingG = false
+				break
+			}
+			m.pendingG = true
+			// Don't return - let child views also handle 'g' for gg binding
+		} else if teaMsg.String() == "x" && m.pendingG {
+			m.pendingG = false
+			url := m.buildCurrentURL()
+			if url != "" {
+				return m, func() tea.Msg {
+					return msg.OpenBrowserMsg{URL: url}
+				}
+			}
+			return m, nil
+		} else {
+			// Reset pending g on any other key (except g itself)
+			m.pendingG = false
+		}
+
+	case msg.OpenBrowserMsg:
+		openBrowser(teaMsg.URL)
+		return m, nil
 
 	case msg.ReposLoadedMsg:
 		if teaMsg.Err != nil {
@@ -459,4 +493,48 @@ func (m Model) loadAllLogsCmd(build *drone.Build) tea.Cmd {
 		}
 	}
 	return tea.Batch(cmds...)
+}
+
+func (m Model) buildCurrentURL() string {
+	serverURL := strings.TrimSuffix(m.client.ServerURL(), "/")
+
+	switch m.state {
+	case stateRepoList:
+		// Get currently highlighted repo from the list
+		if item := m.repoList.SelectedRepo(); item != nil {
+			return fmt.Sprintf("%s/%s", serverURL, item.Slug)
+		}
+	case stateBuildList:
+		if m.selectedRepo == nil {
+			return ""
+		}
+		// Get currently highlighted build from the list
+		if build := m.buildList.SelectedBuild(); build != nil {
+			return fmt.Sprintf("%s/%s/%d", serverURL, m.selectedRepo.Slug, build.Number)
+		}
+		return fmt.Sprintf("%s/%s", serverURL, m.selectedRepo.Slug)
+	case stateLogViewer:
+		if m.selectedRepo == nil || m.selectedBuild == nil {
+			return ""
+		}
+		// Include stage and step numbers if available
+		if stageNum, stepNum, ok := m.logViewer.ActiveStep(); ok {
+			return fmt.Sprintf("%s/%s/%d/%d/%d", serverURL, m.selectedRepo.Slug, m.selectedBuild.Number, stageNum, stepNum)
+		}
+		return fmt.Sprintf("%s/%s/%d", serverURL, m.selectedRepo.Slug, m.selectedBuild.Number)
+	}
+	return ""
+}
+
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	_ = cmd.Start()
 }

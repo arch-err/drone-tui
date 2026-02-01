@@ -15,6 +15,7 @@ type Client interface {
 	ListBuilds(namespace, name string, page int) ([]*drone.Build, error)
 	GetBuild(namespace, name string, number int) (*drone.Build, error)
 	GetLogs(owner, name string, build, stage, step int) ([]*drone.Line, error)
+	ServerURL() string
 }
 
 type droneClient struct {
@@ -62,4 +63,8 @@ func (c *droneClient) GetBuild(namespace, name string, number int) (*drone.Build
 
 func (c *droneClient) GetLogs(owner, name string, build, stage, step int) ([]*drone.Line, error) {
 	return c.inner.Logs(owner, name, build, stage, step)
+}
+
+func (c *droneClient) ServerURL() string {
+	return c.server
 }

@@ -160,7 +160,7 @@ func (m Model) View() string {
 		return styles.AppStyle.Render("No steps found in this build.")
 	}
 
-	help := styles.HelpStyle.Render("tab/shift+tab: switch · ↑/↓: scroll · gg/G: top/bottom · r: refresh · esc: back")
+	help := styles.HelpStyle.Render("tab/shift+tab: switch · ↑/↓: scroll · gg/G: top/bottom · r: refresh · gx: open in browser · esc: back")
 	return lipgloss.JoinVertical(lipgloss.Left, m.viewport.View(), "", help)
 }
 
@@ -219,4 +219,13 @@ func (m *Model) SetSize(w, h int) {
 	m.height = h
 	m.viewport.Width = w
 	m.viewport.Height = h - 2 // Account for separator + help line
+}
+
+// ActiveStep returns the stage and step numbers of the currently active tab
+func (m Model) ActiveStep() (stageNum, stepNum int, ok bool) {
+	if m.activeTab >= 0 && m.activeTab < len(m.tabs) {
+		tab := m.tabs[m.activeTab]
+		return tab.stageNum, tab.stepNum, true
+	}
+	return 0, 0, false
 }

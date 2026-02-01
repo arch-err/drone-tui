@@ -34,3 +34,7 @@ type BuildSelectedMsg struct {
 }
 
 type ClearEscapeHintMsg struct{}
+
+type OpenBrowserMsg struct {
+	URL string
+}

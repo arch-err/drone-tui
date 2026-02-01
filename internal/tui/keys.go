@@ -3,8 +3,9 @@ package tui
 import "github.com/charmbracelet/bubbles/key"
 
 type keyMap struct {
-	Quit key.Binding
-	Back key.Binding
+	Quit       key.Binding
+	Back       key.Binding
+	OpenInBrowser key.Binding
 }
 
 var keys = keyMap{
@@ -15,5 +16,9 @@ var keys = keyMap{
 	Back: key.NewBinding(
 		key.WithKeys("esc"),
 		key.WithHelp("esc", "back"),
+	),
+	OpenInBrowser: key.NewBinding(
+		key.WithKeys("g"),
+		key.WithHelp("gx", "open in browser"),
 	),
 }
