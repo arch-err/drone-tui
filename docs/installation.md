@@ -7,7 +7,7 @@ Download the latest binary from the [releases page](https://github.com/arch-err/
 === "Linux (amd64)"
 
     ```bash
-    curl -Lo drone-tui https://github.com/arch-err/drone-tui/releases/latest/download/drone-tui_linux_amd64.tar.gz
+    curl -LO https://github.com/arch-err/drone-tui/releases/latest/download/drone-tui_linux_amd64.tar.gz
     tar xzf drone-tui_linux_amd64.tar.gz
     sudo mv drone-tui /usr/local/bin/
     ```
@@ -15,7 +15,7 @@ Download the latest binary from the [releases page](https://github.com/arch-err/
 === "macOS (Apple Silicon)"
 
     ```bash
-    curl -Lo drone-tui https://github.com/arch-err/drone-tui/releases/latest/download/drone-tui_darwin_arm64.tar.gz
+    curl -LO https://github.com/arch-err/drone-tui/releases/latest/download/drone-tui_darwin_arm64.tar.gz
     tar xzf drone-tui_darwin_arm64.tar.gz
     sudo mv drone-tui /usr/local/bin/
     ```
